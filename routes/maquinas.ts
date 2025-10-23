@@ -208,27 +208,32 @@ router.delete("/:id(\\d+)", verificaToken, async (req: any, res) => {
   const adminNome = req?.admin?.nome ?? req?.userLogadoNome ?? "desconhecido"
 
   try {
-    const maquina = await prisma.maquina.update({
+    const existe = await prisma.maquina.findUnique({
       where: { id },
-      data: { ativa: false },
       include: { lavanderia: true },
     })
+    if (!existe) return res.status(404).json({ erro: "Máquina não encontrada" })
 
+    // Exclui efetivamente a máquina
+    await prisma.maquina.delete({ where: { id } })
+
+    // Registra log
     if (adminId) {
       await prisma.log.create({
         data: {
           adminId,
-          descricao: "Desativação de máquina",
-          complemento: `Máq ${maquina.id} (${maquina.tipo}) - Por: ${adminNome}`,
+          descricao: "Exclusão definitiva de máquina",
+          complemento: `Máq ${existe.id} (${existe.tipo}) - Lavanderia ${existe.lavanderia?.nome ?? "?"} - Por: ${adminNome}`,
         },
       })
     }
 
-    res.status(200).json(maquina)
+    return res.status(204).send() 
   } catch (error: any) {
-    console.error("Erro ao desativar máquina:", error)
-    if (error?.code === "P2025") return res.status(404).json({ erro: "Máquina não encontrada" })
-    res.status(400).json({ erro: "Erro ao desativar máquina" })
+    console.error("Erro ao excluir máquina:", error)
+    if (error?.code === "P2025")
+      return res.status(404).json({ erro: "Máquina não encontrada" })
+    return res.status(400).json({ erro: "Erro ao excluir máquina" })
   }
 })
 

@@ -206,60 +206,27 @@ router.put("/:id(\\d+)", verificaToken, async (req: any, res) => {
 router.delete("/:id(\\d+)", verificaToken, async (req: any, res) => {
   const id = Number(req.params.id)
   try {
-    const lavanderia = await prisma.lavanderia.delete({ where: { id } })
+    const existe = await prisma.lavanderia.findUnique({ where: { id }, select: { id: true, nome: true } })
+    if (!existe) return res.status(404).json({ erro: "Lavanderia não encontrada" })
+
+    await prisma.$transaction([
+      prisma.maquina.deleteMany({ where: { lavanderiaId: id } }),
+      prisma.lavanderia.delete({ where: { id } }),
+    ])
 
     await prisma.log.create({
       data: {
         adminId: req.admin?.id,
-        descricao: "Exclusão de lavanderia",
-        complemento: `Lavanderia: ${lavanderia.nome} (id ${lavanderia.id})`,
+        descricao: "Exclusão de lavanderia (com máquinas em cascata)",
+        complemento: `Lavanderia: ${existe.nome} (id ${existe.id})`,
       },
     })
 
-    res.status(200).json({ ok: true })
+    return res.status(204).send()
   } catch (error: any) {
     if (error?.code === "P2025") return res.status(404).json({ erro: "Lavanderia não encontrada" })
     console.error("Erro ao excluir lavanderia:", error)
-    res.status(400).json({ erro: "Erro ao excluir lavanderia" })
-  }
-})
-
-router.patch("/:id(\\d+)/destaque", verificaToken, async (req: any, res) => {
-  const id = Number(req.params.id)
-  try {
-    const atual = await prisma.lavanderia.findUnique({
-      where: { id },
-      select: { id: true, nome: true, destaque: true },
-    })
-    if (!atual) return res.status(404).json({ erro: "Lavanderia não encontrada" })
-
-    const atualizado = await prisma.lavanderia.update({
-      where: { id },
-      data: { destaque: !atual.destaque },
-      select: {
-        id: true,
-        nome: true,
-        endereco: true,
-        foto: true,
-        destaque: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    })
-
-    // (opcional) registrar log
-    await prisma.log.create({
-      data: {
-        adminId: req.admin?.id,
-        descricao: "Alternância de destaque da lavanderia",
-        complemento: `Lavanderia: ${atualizado.nome} (id ${atualizado.id}) -> ${atualizado.destaque ? "Destaque" : "Sem destaque"}`,
-      },
-    })
-
-    return res.status(200).json(atualizado)
-  } catch (error) {
-    console.error("Erro ao alternar destaque:", error)
-    return res.status(400).json({ erro: "Erro ao alternar destaque" })
+    return res.status(400).json({ erro: "Erro ao excluir lavanderia" })
   }
 })
 
