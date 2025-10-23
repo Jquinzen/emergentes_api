@@ -8,19 +8,23 @@ import { verificaToken } from "../middewares/verificaToken"
 const prisma = new PrismaClient()
 const router = Router()
 
-
+// ===== Schema de validação =====
 const lavanderiaSchema = z.object({
   nome: z.string().min(3, { message: "Nome deve possuir, no mínimo, 3 caracteres" }),
-  foto: z.string().url({ message: "A foto deve ser uma URL válida" }).optional().or(z.literal("").transform(() => undefined)),
+  foto: z
+    .string()
+    .url({ message: "A foto deve ser uma URL válida" })
+    .optional()
+    .or(z.literal("").transform(() => undefined)),
   endereco: z.string().min(5, { message: "Endereço deve possuir, no mínimo, 5 caracteres" }),
   destaque: z.boolean().optional(),
 })
 
-
-// Helpers: contadores por lavanderia 
-
+// ===== Helpers: contadores por lavanderia =====
 async function contarMaquinasPorLavanderia(ids: number[]) {
-  if (ids.length === 0) return { ativas: new Map<number, number>(), totais: new Map<number, number>() }
+  if (ids.length === 0) {
+    return { ativas: new Map<number, number>(), totais: new Map<number, number>() }
+  }
 
   const ativas = await prisma.maquina.groupBy({
     by: ["lavanderiaId"],
@@ -41,9 +45,7 @@ async function contarMaquinasPorLavanderia(ids: number[]) {
   return { ativas: mapAtivas, totais: mapTotais }
 }
 
-
-
-
+// ===== GET /lavanderias =====
 router.get("/", async (_req, res) => {
   try {
     const lavanderias = await prisma.lavanderia.findMany({
@@ -75,9 +77,7 @@ router.get("/", async (_req, res) => {
   }
 })
 
-
-
-
+// ===== GET /lavanderias/:id =====
 router.get("/:id(\\d+)", async (req, res) => {
   const id = Number(req.params.id)
   try {
@@ -107,9 +107,7 @@ router.get("/:id(\\d+)", async (req, res) => {
   }
 })
 
-
-
-
+// ===== POST /lavanderias =====
 router.post("/", verificaToken, async (req: any, res) => {
   const valida = lavanderiaSchema.safeParse(req.body)
   if (!valida.success) {
@@ -121,27 +119,31 @@ router.post("/", verificaToken, async (req: any, res) => {
 
   try {
     const lavanderia = await prisma.lavanderia.create({
-      data: {
-        nome,
-        foto,
-        endereco,
-        destaque: destaque ?? false,
-      },
+      data: { nome, foto, endereco, destaque: destaque ?? false },
       select: {
-        id: true, nome: true, endereco: true, foto: true, destaque: true, createdAt: true, updatedAt: true,
+        id: true,
+        nome: true,
+        endereco: true,
+        foto: true,
+        destaque: true,
+        createdAt: true,
+        updatedAt: true,
       },
     })
 
+    // log opcional
+    try {
+      await prisma.log.create({
+        data: {
+          adminId: req.admin?.id,
+          descricao: "Cadastro de lavanderia",
+          complemento: `Lavanderia: ${lavanderia.nome} (id ${lavanderia.id})`,
+        },
+      })
+    } catch (e) {
+      console.warn("Falha ao registrar log de criação de lavanderia:", e)
+    }
 
-    await prisma.log.create({
-      data: {
-        adminId: req.admin?.id,
-        descricao: "Cadastro de lavanderia",
-        complemento: `Lavanderia: ${lavanderia.nome} (id ${lavanderia.id})`,
-      },
-    })
-
-    // devolve já com contadores
     const [qAtivas, qTotal] = await Promise.all([
       prisma.maquina.count({ where: { lavanderiaId: lavanderia.id, ativa: true } }),
       prisma.maquina.count({ where: { lavanderiaId: lavanderia.id } }),
@@ -154,9 +156,7 @@ router.post("/", verificaToken, async (req: any, res) => {
   }
 })
 
-
-
-
+// ===== PUT /lavanderias/:id =====
 router.put("/:id(\\d+)", verificaToken, async (req: any, res) => {
   const id = Number(req.params.id)
   const valida = lavanderiaSchema.safeParse(req.body)
@@ -170,24 +170,30 @@ router.put("/:id(\\d+)", verificaToken, async (req: any, res) => {
   try {
     const lavanderia = await prisma.lavanderia.update({
       where: { id },
-      data: {
-        nome,
-        foto,
-        endereco,
-        destaque: destaque ?? false,
-      },
+      data: { nome, foto, endereco, destaque: destaque ?? false },
       select: {
-        id: true, nome: true, endereco: true, foto: true, destaque: true, createdAt: true, updatedAt: true,
+        id: true,
+        nome: true,
+        endereco: true,
+        foto: true,
+        destaque: true,
+        createdAt: true,
+        updatedAt: true,
       },
     })
 
-    await prisma.log.create({
-      data: {
-        adminId: req.admin?.id,
-        descricao: "Atualização de lavanderia",
-        complemento: `Lavanderia: ${lavanderia.nome} (id ${lavanderia.id})`,
-      },
-    })
+    // log opcional
+    try {
+      await prisma.log.create({
+        data: {
+          adminId: req.admin?.id,
+          descricao: "Atualização de lavanderia",
+          complemento: `Lavanderia: ${lavanderia.nome} (id ${lavanderia.id})`,
+        },
+      })
+    } catch (e) {
+      console.warn("Falha ao registrar log de atualização de lavanderia:", e)
+    }
 
     const [qAtivas, qTotal] = await Promise.all([
       prisma.maquina.count({ where: { lavanderiaId: id, ativa: true } }),
@@ -201,12 +207,14 @@ router.put("/:id(\\d+)", verificaToken, async (req: any, res) => {
   }
 })
 
-
-
+// ===== DELETE /lavanderias/:id (cascata: apaga máquinas e a lavanderia) =====
 router.delete("/:id(\\d+)", verificaToken, async (req: any, res) => {
   const id = Number(req.params.id)
   try {
-    const existe = await prisma.lavanderia.findUnique({ where: { id }, select: { id: true, nome: true } })
+    const existe = await prisma.lavanderia.findUnique({
+      where: { id },
+      select: { id: true, nome: true },
+    })
     if (!existe) return res.status(404).json({ erro: "Lavanderia não encontrada" })
 
     await prisma.$transaction([
@@ -214,13 +222,18 @@ router.delete("/:id(\\d+)", verificaToken, async (req: any, res) => {
       prisma.lavanderia.delete({ where: { id } }),
     ])
 
-    await prisma.log.create({
-      data: {
-        adminId: req.admin?.id,
-        descricao: "Exclusão de lavanderia (com máquinas em cascata)",
-        complemento: `Lavanderia: ${existe.nome} (id ${existe.id})`,
-      },
-    })
+    // log opcional
+    try {
+      await prisma.log.create({
+        data: {
+          adminId: req.admin?.id,
+          descricao: "Exclusão de lavanderia (com máquinas em cascata)",
+          complemento: `Lavanderia: ${existe.nome} (id ${existe.id})`,
+        },
+      })
+    } catch (e) {
+      console.warn("Falha ao registrar log de exclusão de lavanderia:", e)
+    }
 
     return res.status(204).send()
   } catch (error: any) {
@@ -230,8 +243,7 @@ router.delete("/:id(\\d+)", verificaToken, async (req: any, res) => {
   }
 })
 
-/**  MANTER ESTA ROTA ABAIXO!  */
-// PATCH /lavanderias/:id/destaque (alterna destaque)
+// ===== PATCH /lavanderias/:id/destaque (toggle) =====
 router.patch("/:id(\\d+)/destaque", verificaToken, async (req: any, res) => {
   const id = Number(req.params.id)
   try {
@@ -255,13 +267,18 @@ router.patch("/:id(\\d+)/destaque", verificaToken, async (req: any, res) => {
       },
     })
 
-    await prisma.log.create({
-      data: {
-        adminId: req.admin?.id,
-        descricao: "Alternância de destaque da lavanderia",
-        complemento: `Lavanderia: ${atualizado.nome} (id ${atualizado.id}) -> ${atualizado.destaque ? "Destaque" : "Sem destaque"}`,
-      },
-    })
+    // log opcional
+    try {
+      await prisma.log.create({
+        data: {
+          adminId: req.admin?.id,
+          descricao: "Alternância de destaque da lavanderia",
+          complemento: `Lavanderia: ${atualizado.nome} (id ${atualizado.id}) -> ${atualizado.destaque ? "Destaque" : "Sem destaque"}`,
+        },
+      })
+    } catch (e) {
+      console.warn("Falha ao registrar log do destaque:", e)
+    }
 
     return res.status(200).json(atualizado)
   } catch (error) {
