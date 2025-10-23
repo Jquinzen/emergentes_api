@@ -1,0 +1,144 @@
+// ============================
+// Prisma Schema - Reservas de Lavanderia
+// ============================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgres"
+  url      = env("DATABASE_URL")
+}
+
+// ============================
+// MODELOS DE DOMÍNIO
+// ============================
+
+model Lavanderia {
+  id           Int        @id @default(autoincrement())
+  nome         String     @db.VarChar(60)
+  foto         String?
+  endereco     String     @db.VarChar(120)
+  qntMaquinas  Int        @default(0)
+  destaque     Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  maquinas     Maquina[]
+  admins       Admin[]    @relation("AdminLavanderias")
+
+  @@map("lavanderias")
+}
+
+model Maquina {
+  id           Int          @id @default(autoincrement())
+  tipo         TipoMaquina  @default(LAVAR)
+  ativa        Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  lavanderia   Lavanderia   @relation(fields: [lavanderiaId], references: [id])
+  lavanderiaId Int
+
+  reservas     Reserva[]
+
+  // opcional: qual admin criou/alterou esta máquina
+  admin        Admin?       @relation(fields: [adminId], references: [id])
+  adminId      String?      @db.VarChar(36)
+
+  @@map("maquinas")
+}
+
+model Cliente {
+  id         String    @id @default(uuid()) @db.VarChar(36)
+  nome       String    @db.VarChar(60)
+  email      String    @unique @db.VarChar(40)
+  senha      String    @db.VarChar(60) // hash (ex.: bcrypt)
+  telefone   String?   @db.VarChar(20)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  reservas   Reserva[]
+
+  @@map("clientes")
+}
+
+model Reserva {
+  id           Int             @id @default(autoincrement())
+
+  // relacionamentos
+  cliente      Cliente         @relation(fields: [clienteId], references: [id])
+  clienteId    String          @db.VarChar(36)
+  maquina      Maquina         @relation(fields: [maquinaId], references: [id])
+  maquinaId    Int
+
+  // janela da reserva (1h)
+  startsAt     DateTime
+  endsAt       DateTime
+
+  // fluxo de aprovação pelo admin
+  status       StatusReserva   @default(PENDENTE)
+  resposta     String?         @db.VarChar(255) // comentário do admin (motivo/observação)
+  respondidaEm DateTime?       // quando o admin decidiu
+  admin        Admin?          @relation(fields: [adminId], references: [id])
+  adminId      String?         @db.VarChar(36)
+
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  // evita duplicidade no mesmo horário exato da mesma máquina
+  @@unique([maquinaId, startsAt])
+
+  // índices úteis
+  @@index([clienteId, startsAt])
+  @@index([maquinaId, startsAt])
+  @@index([status, startsAt])
+
+  @@map("reservas")
+}
+
+model Admin {
+  id           String       @id @default(uuid()) @db.VarChar(36)
+  nome         String       @db.VarChar(60)
+  email        String       @unique @db.VarChar(40)
+  senha        String       @db.VarChar(60)
+  nivel        Int          @db.SmallInt @default(2)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  // relacionamentos
+  maquinas     Maquina[]
+  reservas     Reserva[]
+  logs         Log[]
+  lavanderias  Lavanderia[] @relation("AdminLavanderias")
+
+  @@map("admins")
+}
+
+model Log {
+  id           Int       @id @default(autoincrement())
+  admin        Admin     @relation(fields: [adminId], references: [id])
+  adminId      String    @db.VarChar(36)
+  descricao    String    @db.VarChar(60)
+  complemento  String    @db.VarChar(200)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@map("logs")
+}
+
+// ============================
+// ENUMS
+// ============================
+
+enum TipoMaquina {
+  LAVAR
+  SECAR
+}
+
+enum StatusReserva {
+  PENDENTE
+  CONFIRMADA
+  RECUSADA
+  CANCELADA
+}
